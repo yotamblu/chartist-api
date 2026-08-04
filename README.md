@@ -33,6 +33,14 @@ app/
 - `GET /symbols/{ticker}/prices?from=&to=&limit=` — daily OHLCV bars with both
   raw and split-adjusted prices. Omitting `from` returns the symbol's full
   available history (not just a fixed lookback window).
+- `GET /symbols/{ticker}/dividends?years=20` — every dividend paid in the
+  last `years` years (default 20), each with the closing price on/just
+  before its ex-date and the yield that dividend represented at the time
+  (`amount / price_at_ex_date * 100`). Also returns the trailing-12-month
+  dividend total and the stock's current dividend yield
+  (`trailing_12m_dividend_amount / current_price * 100`) — future,
+  not-yet-paid ex-dates that happen to already be in the `dividends` table
+  are excluded from the trailing-12-month figure.
 - `GET /exchanges` — list of exchanges.
 
 ## Setup

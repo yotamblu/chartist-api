@@ -52,3 +52,19 @@ class PriceSeries(BaseModel):
     symbol_id: int
     ticker: str
     bars: list[PriceBar]
+
+
+class DividendEntry(BaseModel):
+    ex_date: date
+    amount: float
+    price_at_ex_date: float | None = None
+    yield_at_ex_date: float | None = None  # percent, amount / price_at_ex_date * 100
+
+
+class DividendHistory(BaseModel):
+    symbol_id: int
+    ticker: str
+    dividends: list[DividendEntry]
+    trailing_12m_dividend_amount: float
+    current_price: float | None = None
+    current_dividend_yield: float | None = None  # percent, TTM dividends / current_price

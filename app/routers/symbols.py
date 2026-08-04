@@ -1,10 +1,18 @@
+from bisect import bisect_right
 from datetime import date, timedelta
 
 import asyncpg
 from fastapi import APIRouter, HTTPException, Query
 
 from app.db import get_pool
-from app.models import PriceBar, PriceSeries, SymbolProfile, SymbolSearchResult
+from app.models import (
+    DividendEntry,
+    DividendHistory,
+    PriceBar,
+    PriceSeries,
+    SymbolProfile,
+    SymbolSearchResult,
+)
 from app.providers.fmp import fetch_profile
 
 router = APIRouter(prefix="/symbols", tags=["symbols"])
@@ -250,3 +258,94 @@ async def get_symbol_prices(
         )
 
     return PriceSeries(symbol_id=symbol_id, ticker=symbol["ticker"], bars=bars)
+
+
+@router.get("/{ticker}/dividends", response_model=DividendHistory)
+async def get_symbol_dividends(ticker: str, years: int = Query(20, ge=1, le=50)):
+    pool = get_pool()
+    symbol = await _get_symbol_by_ticker(pool, ticker)
+    symbol_id = symbol["symbol_id"]
+
+    cutoff = date.today() - timedelta(days=365 * years)
+    dividend_rows = await pool.fetch(
+        """
+        SELECT ex_date, amount
+        FROM dividends
+        WHERE symbol_id = $1 AND ex_date >= $2
+        ORDER BY ex_date ASC
+        """,
+        symbol_id,
+        cutoff,
+    )
+
+    if not dividend_rows:
+        return DividendHistory(
+            symbol_id=symbol_id,
+            ticker=symbol["ticker"],
+            dividends=[],
+            trailing_12m_dividend_amount=0.0,
+            current_price=None,
+            current_dividend_yield=None,
+        )
+
+    earliest_ex_date = dividend_rows[0]["ex_date"]
+
+    # Close prices to look up the price on/around each ex_date, plus the
+    # most recent close for the current yield. Uses the same safe windowed
+    # fetch as /prices to avoid locking too many hypertable chunks in one
+    # go over a potentially decades-wide range.
+    price_rows = await _fetch_price_rows_windowed(
+        pool,
+        symbol_id,
+        earliest_ex_date - timedelta(days=14),
+        date.today(),
+        50000,
+    )
+    prices_by_date = {row["trade_date"]: float(row["close"]) for row in price_rows}
+    sorted_trade_dates = sorted(prices_by_date)
+
+    def price_on_or_before(target: date) -> float | None:
+        idx = bisect_right(sorted_trade_dates, target) - 1
+        if idx < 0:
+            return None
+        return prices_by_date[sorted_trade_dates[idx]]
+
+    dividends = []
+    for row in dividend_rows:
+        ex_date = row["ex_date"]
+        amount = float(row["amount"])
+        price = price_on_or_before(ex_date)
+        dividends.append(
+            DividendEntry(
+                ex_date=ex_date,
+                amount=amount,
+                price_at_ex_date=price,
+                yield_at_ex_date=(amount / price * 100) if price else None,
+            )
+        )
+
+    today = date.today()
+    ttm_cutoff = today - timedelta(days=365)
+    trailing_12m_amount = sum(
+        float(row["amount"])
+        for row in dividend_rows
+        if ttm_cutoff <= row["ex_date"] <= today
+    )
+
+    current_price = prices_by_date[sorted_trade_dates[-1]] if sorted_trade_dates else None
+    current_dividend_yield = (
+        (trailing_12m_amount / current_price * 100) if current_price else None
+    )
+
+    return DividendHistory(
+        symbol_id=symbol_id,
+        ticker=symbol["ticker"],
+        dividends=dividends,
+        trailing_12m_dividend_amount=round(trailing_12m_amount, 6),
+        current_price=current_price,
+        current_dividend_yield=(
+            round(current_dividend_yield, 4)
+            if current_dividend_yield is not None
+            else None
+        ),
+    )
