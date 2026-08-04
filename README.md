@@ -55,11 +55,11 @@ cp .env.example .env
 
 `.env` requires:
 
-| Variable          | Description                                   |
-| ----------------- | ---------------------------------------------- |
-| `DATABASE_URL`    | Postgres connection string, e.g. `postgresql://user:password@localhost:5432/chartist` |
-| `FINNHUB_API_KEY` | API key for Finnhub (used for stock profiles) |
-| `FMP_API_KEY`     | API key for Financial Modeling Prep (used for ETF profiles) |
+| Variable       | Description                                   |
+| -------------- | ---------------------------------------------- |
+| `DATABASE_URL` | Postgres connection string, e.g. `postgresql://user:password@localhost:5432/chartist` |
+| `FINNHUB_KEY`  | API key for Finnhub (used for stock profiles) |
+| `FMP_KEY`      | API key for Financial Modeling Prep (used for ETF profiles) |
 
 ### 3. Install dependencies
 

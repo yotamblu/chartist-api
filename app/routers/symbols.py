@@ -40,7 +40,7 @@ async def search_symbols(
         LEFT JOIN exchanges e ON e.exchange_id = s.exchange_id
         WHERE (s.ticker ILIKE $1 OR s.name ILIKE $1)
           AND ($2::text IS NULL OR e.code = $2)
-          AND ($3::text IS NULL OR s.security_type = $3)
+          AND ($3::text IS NULL OR s.security_type::text = $3)
         ORDER BY
           CASE
             WHEN s.ticker ILIKE $4 THEN 0
