@@ -31,7 +31,8 @@ app/
   live from FMP for both stocks and ETFs, falling back to the cache if the live
   call fails.
 - `GET /symbols/{ticker}/prices?from=&to=&limit=` — daily OHLCV bars with both
-  raw and split-adjusted prices. Defaults to the last 2 years.
+  raw and split-adjusted prices. Omitting `from` returns the symbol's full
+  available history (not just a fixed lookback window).
 - `GET /exchanges` — list of exchanges.
 
 ## Setup
@@ -53,10 +54,11 @@ cp .env.example .env
 
 `.env` requires:
 
-| Variable       | Description                                   |
-| -------------- | ---------------------------------------------- |
-| `DATABASE_URL` | Postgres connection string, e.g. `postgresql://user:password@localhost:5432/chartist` |
-| `FMP_KEY`      | API key for Financial Modeling Prep (used for stock and ETF profiles) |
+| Variable          | Description                                   |
+| ----------------- | ---------------------------------------------- |
+| `DATABASE_URL`    | Postgres connection string, e.g. `postgresql://user:password@localhost:5432/chartist` |
+| `FMP_KEY`         | API key for Financial Modeling Prep (used for stock and ETF profiles) |
+| `ALLOWED_ORIGINS` | Comma-separated list of allowed CORS origins. Defaults to `http://localhost:3000` if unset. |
 
 ### 3. Install dependencies
 
@@ -79,11 +81,40 @@ uvicorn main:app --reload
 The API will be available at `http://localhost:8000`, with interactive docs
 at `http://localhost:8000/docs`.
 
+## Deploying to Railway
+
+This repo is ready to deploy on [Railway](https://railway.app/) as-is:
+
+1. Create a new Railway project from this GitHub repo (or `railway init` +
+   `railway up` from a local checkout).
+2. In the service's **Variables** tab, set `DATABASE_URL`, `FMP_KEY`, and
+   `ALLOWED_ORIGINS` (your deployed frontend's origin, e.g.
+   `https://your-frontend.example.com`) — same variables as `.env.example`.
+   Railway does not read `.env` files from the repo; it injects these as
+   real environment variables.
+3. Railway auto-detects this as a Python app (Nixpacks, using
+   `requirements.txt` and `.python-version`) and uses the start command
+   from `railway.json` / `Procfile`:
+   `uvicorn main:app --host 0.0.0.0 --port $PORT`. `$PORT` is provided by
+   Railway at runtime — don't hardcode a port.
+4. Railway will health-check `GET /health` (configured in `railway.json`)
+   to confirm the deploy is live.
+5. Generate a public domain for the service from the Railway dashboard
+   (Settings → Networking) to get a URL your frontend can call.
+
+No database migration step is needed or wanted — this service only reads
+from and writes to tables that already exist in the target Postgres
+instance.
+
 ## Notes
 
-- `daily_prices` is a TimescaleDB hypertable partitioned on `trade_date`.
-  Every query against it includes a `trade_date` filter (and a `LIMIT`) to
-  avoid locking every chunk.
+- `daily_prices` is a TimescaleDB hypertable with ~1,400 chunks across its
+  full history. Every query against it includes a `trade_date` filter (and
+  a `LIMIT`) to avoid locking every chunk. A single query spanning a very
+  wide range (tens of years) can still lock more chunks than Postgres's
+  `max_locks_per_transaction` allows, so `/symbols/{ticker}/prices` fetches
+  wide ranges (including the full-history default) in fixed 5-year windows
+  and concatenates the results rather than issuing one unbounded query.
 - Split adjustment is computed at read time from the `splits` table — stored
   price data is never rewritten.
 - If a live provider call fails (network error, rate limit, etc.), the
