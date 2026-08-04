@@ -31,6 +31,24 @@ async def fetch_etf_profile(ticker: str) -> dict:
 
     profile = data[0] if isinstance(data, list) else data
 
+    employees = None
+    raw_employees = profile.get("fullTimeEmployees")
+    if raw_employees not in (None, ""):
+        try:
+            employees = int(raw_employees)
+        except (TypeError, ValueError):
+            employees = None
+
+    week52_low, week52_high = None, None
+    week52_range = profile.get("range")
+    if week52_range and "-" in week52_range:
+        low_str, high_str = week52_range.split("-", 1)
+        try:
+            week52_low = float(low_str)
+            week52_high = float(high_str)
+        except ValueError:
+            week52_low, week52_high = None, None
+
     return {
         "market_cap": profile.get("marketCap"),
         "logo_url": profile.get("image"),
@@ -38,9 +56,9 @@ async def fetch_etf_profile(ticker: str) -> dict:
         "sector": profile.get("sector"),
         "industry": profile.get("industry"),
         "website": profile.get("website"),
-        "employees": None,
+        "employees": employees,
         "pe_ratio": None,
-        "week52_high": None,
-        "week52_low": None,
+        "week52_high": week52_high,
+        "week52_low": week52_low,
         "source": "fmp",
     }
