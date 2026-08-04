@@ -5,8 +5,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app.db import get_pool
 from app.models import PriceBar, PriceSeries, SymbolProfile, SymbolSearchResult
-from app.providers.finnhub import fetch_stock_profile
-from app.providers.fmp import fetch_etf_profile
+from app.providers.fmp import fetch_profile
 
 router = APIRouter(prefix="/symbols", tags=["symbols"])
 
@@ -65,13 +64,9 @@ async def get_symbol_profile(ticker: str):
     pool = get_pool()
     symbol = await _get_symbol_by_ticker(pool, ticker)
     symbol_id = symbol["symbol_id"]
-    security_type = symbol["security_type"]
 
     try:
-        if security_type == "stock":
-            live_data = await fetch_stock_profile(symbol["ticker"])
-        else:
-            live_data = await fetch_etf_profile(symbol["ticker"])
+        live_data = await fetch_profile(symbol["ticker"])
     except Exception:
         live_data = None
 

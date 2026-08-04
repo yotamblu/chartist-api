@@ -1,7 +1,9 @@
-"""FMP (Financial Modeling Prep) provider - used for 'etf' security_type profiles.
+"""FMP (Financial Modeling Prep) provider - used for all symbol profiles
+(stocks and ETFs alike).
 
 Uses FMP's general company profile endpoint. This is not fund-specific, so
-expense ratio / holdings data is not available and is left null.
+expense ratio / holdings data for ETFs is not available and is left null.
+pe_ratio is also not present in this endpoint's response and is left null.
 """
 
 import httpx
@@ -11,7 +13,7 @@ from app.config import FMP_API_KEY
 FMP_BASE_URL = "https://financialmodelingprep.com/stable"
 
 
-async def fetch_etf_profile(ticker: str) -> dict:
+async def fetch_profile(ticker: str) -> dict:
     """Fetch a company/fund profile from FMP's /stable/profile endpoint.
 
     Returns a dict normalized to the symbol_profile_cache column shape.

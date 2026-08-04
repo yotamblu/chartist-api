@@ -3,8 +3,8 @@
 A FastAPI backend for Chartist, a stock analysis platform. It reads from and
 writes to an existing Postgres/TimescaleDB database (symbols, exchanges,
 daily prices, splits, dividends, and a profile cache) and enriches company
-profile data live from Finnhub (stocks) and FMP (ETFs), caching the result
-back into the database.
+profile data live from Financial Modeling Prep (FMP), for both stocks and
+ETFs, caching the result back into the database.
 
 This service does **not** create or migrate any database schema — it
 assumes the tables already exist and are populated.
@@ -21,15 +21,14 @@ app/
     symbols.py             /symbols/search, /symbols/{ticker}/profile, /symbols/{ticker}/prices
     exchanges.py            /exchanges
   providers/
-    finnhub.py              Finnhub stock profile client
-    fmp.py                   FMP ETF/company profile client
+    fmp.py                   FMP company/fund profile client
 ```
 
 ## Endpoints
 
 - `GET /symbols/search?q=&exchange=&type=&limit=` — search symbols by ticker/name.
-- `GET /symbols/{ticker}/profile` — write-through cached company profile, routed
-  to Finnhub for stocks and FMP for ETFs, falling back to the cache if the live
+- `GET /symbols/{ticker}/profile` — write-through cached company profile, fetched
+  live from FMP for both stocks and ETFs, falling back to the cache if the live
   call fails.
 - `GET /symbols/{ticker}/prices?from=&to=&limit=` — daily OHLCV bars with both
   raw and split-adjusted prices. Defaults to the last 2 years.
@@ -42,8 +41,7 @@ app/
 - Python 3.11+
 - Access to an existing Postgres/TimescaleDB instance with the Chartist schema
   already populated.
-- API keys for [Finnhub](https://finnhub.io) and
-  [Financial Modeling Prep](https://site.financialmodelingprep.com/).
+- An API key for [Financial Modeling Prep](https://site.financialmodelingprep.com/).
 
 ### 2. Environment variables
 
@@ -58,8 +56,7 @@ cp .env.example .env
 | Variable       | Description                                   |
 | -------------- | ---------------------------------------------- |
 | `DATABASE_URL` | Postgres connection string, e.g. `postgresql://user:password@localhost:5432/chartist` |
-| `FINNHUB_KEY`  | API key for Finnhub (used for stock profiles) |
-| `FMP_KEY`      | API key for Financial Modeling Prep (used for ETF profiles) |
+| `FMP_KEY`      | API key for Financial Modeling Prep (used for stock and ETF profiles) |
 
 ### 3. Install dependencies
 
