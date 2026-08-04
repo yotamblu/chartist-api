@@ -7,7 +7,17 @@ _pool: asyncpg.Pool | None = None
 
 async def connect() -> None:
     global _pool
-    _pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=10)
+    # statement_cache_size=0 disables asyncpg's server-side prepared
+    # statement cache. Without this, repeated identical queries against the
+    # daily_prices hypertable get replanned as a generic plan after their
+    # 5th execution (Postgres's default prepared-statement behavior) -- a
+    # generic plan doesn't know the bind parameter values, so it can't
+    # prune hypertable chunks by trade_date and ends up locking every
+    # chunk, which is the "out of shared memory" failure mode this API is
+    # supposed to avoid.
+    _pool = await asyncpg.create_pool(
+        DATABASE_URL, min_size=1, max_size=10, statement_cache_size=0
+    )
 
 
 async def disconnect() -> None:
