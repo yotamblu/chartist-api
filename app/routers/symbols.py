@@ -9,6 +9,57 @@ from app.providers.fmp import fetch_profile
 
 router = APIRouter(prefix="/symbols", tags=["symbols"])
 
+# daily_prices is a TimescaleDB hypertable chunked by trade_date. A single
+# query spanning a wide date range has to lock every chunk it overlaps, and
+# this table has ~1,400 chunks across its full ~25-year history -- more
+# than Postgres's max_locks_per_transaction allows in one query (confirmed:
+# a ~24-year span reliably throws OutOfMemoryError / "out of shared
+# memory", a ~23-year span doesn't). Fetching in fixed-size windows well
+# under that ceiling keeps every individual query safe regardless of how
+# wide the overall requested range is.
+_SAFE_WINDOW_DAYS = 365 * 5
+
+
+async def _fetch_price_rows_windowed(
+    pool: asyncpg.Pool,
+    symbol_id: int,
+    from_date: date,
+    to_date: date,
+    limit: int,
+) -> list[asyncpg.Record]:
+    rows: list[asyncpg.Record] = []
+    window_start = from_date
+    while window_start <= to_date and len(rows) < limit:
+        window_end = min(window_start + timedelta(days=_SAFE_WINDOW_DAYS), to_date)
+        window_rows = await pool.fetch(
+            """
+            SELECT trade_date, open, high, low, close, volume
+            FROM daily_prices
+            WHERE symbol_id = $1 AND trade_date BETWEEN $2 AND $3
+            ORDER BY trade_date ASC
+            LIMIT $4
+            """,
+            symbol_id,
+            window_start,
+            window_end,
+            limit - len(rows),
+        )
+        rows.extend(window_rows)
+        window_start = window_end + timedelta(days=1)
+    return rows
+
+
+async def _earliest_available_trade_date(pool: asyncpg.Pool) -> date | None:
+    # Reads TimescaleDB's chunk catalog (metadata only, not the hypertable
+    # itself) so this never risks the same chunk-locking problem.
+    return await pool.fetchval(
+        """
+        SELECT min(range_start)::date
+        FROM timescaledb_information.chunks
+        WHERE hypertable_name = 'daily_prices'
+        """
+    )
+
 
 async def _get_symbol_by_ticker(pool: asyncpg.Pool, ticker: str) -> asyncpg.Record:
     row = await pool.fetchrow(
@@ -137,27 +188,24 @@ async def get_symbol_prices(
     ticker: str,
     from_: date | None = Query(None, alias="from"),
     to: date | None = Query(None),
-    limit: int = Query(1000, ge=1, le=5000),
+    limit: int = Query(20000, ge=1, le=50000),
 ):
     pool = get_pool()
     symbol = await _get_symbol_by_ticker(pool, ticker)
     symbol_id = symbol["symbol_id"]
 
     to_date = to or date.today()
-    from_date = from_ or (to_date - timedelta(days=365 * 2))
+    if from_ is not None:
+        from_date = from_
+    else:
+        # No lower bound given -> return the symbol's full available
+        # history, not just a fixed lookback window.
+        from_date = await _earliest_available_trade_date(pool) or (
+            to_date - timedelta(days=365 * 2)
+        )
 
-    price_rows = await pool.fetch(
-        """
-        SELECT trade_date, open, high, low, close, volume
-        FROM daily_prices
-        WHERE symbol_id = $1 AND trade_date BETWEEN $2 AND $3
-        ORDER BY trade_date ASC
-        LIMIT $4
-        """,
-        symbol_id,
-        from_date,
-        to_date,
-        limit,
+    price_rows = await _fetch_price_rows_windowed(
+        pool, symbol_id, from_date, to_date, limit
     )
 
     split_rows = await pool.fetch(
